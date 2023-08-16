@@ -117,6 +117,26 @@ namespace HavenSoft.HexManiac.Core {
             throw new InvalidOperationException($"Enumerable did not contain any {typeof(T)} elements.");
       }
 
+      public static int MatchPairIndex<T>(this ReadOnlySpan<T> collection, T start, T end) where T : IEquatable<T> {
+         var started = false;
+         var depth = 0;
+         int index = -1;
+         foreach (var c in collection) {
+            index += 1;
+            if (!c.Equals(start) && !c.Equals(end)) continue;
+            if (c.Equals(start)) {
+               started = true;
+               depth += 1;
+               continue;
+            } else {
+               if (!started) continue;
+               depth -= 1;
+               if (depth == 0) return index;
+            }
+         }
+         return -1;
+      }
+
       public static bool IsNullOrEmpty<T>(this IEnumerable<T> list) {
          if (list == null) return true;
          return !list.Any();
@@ -251,6 +271,7 @@ namespace HavenSoft.HexManiac.Core {
       /// </summary>
       public static int SkipCount(this string full, string partial) {
          int j = 0, skipCount = 0;
+         partial = partial.ToUpper();
 
          for (int i = 0; i < partial.Length; i++) {
             var testPartial = char.ToUpperInvariant(partial[i]);
@@ -262,6 +283,7 @@ namespace HavenSoft.HexManiac.Core {
                if (full[j] == 'á') testFull = 'A';
                j++;
                if (testFull == testPartial) break;
+               if (testFull == partial[0] && i == 1) skipCount = 0;
                if (j == full.Length) return skipCount;
                if (i > 0) skipCount++;
             }
@@ -350,7 +372,7 @@ namespace HavenSoft.HexManiac.Core {
 
       public static string ToAddress(this int address) => address.ToString("X6"); // for debugging
 
-      public static IList<int> FindMatches(string input, IList<string> options) {
+      public static IList<int> FindMatches(this string input, IReadOnlyList<string> options) {
          var result = new List<int>();
          var seekBits = input.BitLetters();
          for (int i = 0; i < options.Count; i++) {

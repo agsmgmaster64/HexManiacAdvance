@@ -29,6 +29,31 @@ Name = '''graphics.text.font.japan5.width'''
 Address = 0x66C6E4
 Format = '''[width.]512'''
 
+[[NamedAnchors]]
+Name = '''scripts.battle.badge.obey.flags'''
+Address = 0x045DC4
+Format = '''[word::|h]4'''
+
+[[NamedAnchors]]
+Name = '''scripts.battle.badge.obey.0badges'''
+Address = 0x045D4A
+Format = '''[level.]1'''
+
+[[NamedAnchors]]
+Name = '''scripts.battle.badge.obey.2badges'''
+Address = 0x045D58
+Format = '''[level.]scripts.battle.badge.obey.0badges'''
+
+[[NamedAnchors]]
+Name = '''scripts.battle.badge.obey.4badges'''
+Address = 0x045D66
+Format = '''[level.]scripts.battle.badge.obey.0badges'''
+
+[[NamedAnchors]]
+Name = '''scripts.battle.badge.obey.6badges'''
+Address = 0x045D74
+Format = '''[level.]scripts.battle.badge.obey.0badges'''
+
 [[OffsetPointer]]
 Address = 0x038850
 Offset = 0x000004
@@ -48,6 +73,30 @@ Offset = 0x000004
 [[OffsetPointer]]
 Address = 0x06B82C
 Offset = 0x000004
+
+[[OffsetPointer]]
+Address = 0x06E624
+Offset = 0x000004
+
+[[OffsetPointer]]
+Address = 0x06F0D0
+Offset = 0x000004
+
+[[OffsetPointer]]
+Address = 0x14F21C
+Offset = 0x000004
+
+[[OffsetPointer]]
+Address = 0x14F504
+Offset = 0x000004
+
+[[OffsetPointer]]
+Address = 0x196A98
+Offset = 0x000004
+
+[[OffsetPointer]]
+Address = 0x13094C
+Offset = 0x000010
 
 [[List]]
 Name = '''pokenavTowns'''

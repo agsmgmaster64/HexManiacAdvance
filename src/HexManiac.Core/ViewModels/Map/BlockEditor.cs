@@ -421,6 +421,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
          this.tiles = tiles;
          this.blocks = blocks;
          this.blockAttributes = blockAttributes;
+         hasTerrainAndEncounter = blockAttributes[0].Length > 2;
          images = new CanvasPixelViewModel[8];
          indexForTileImage = new Dictionary<IPixelViewModel, int>();
          if (listSource.TryGetList("MapAttributeBehaviors", out var behaviors)) behaviors.ForEach(BehaviorOptions.Add);
@@ -545,7 +546,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
       }
 
       public void DrawOnTile(IPixelViewModel tile) {
-         if (!showTiles) return;
+         if (!showTiles || tile == null) return;
          var index = indexForTileImage[tile];
          LzTilemapRun.WriteTileData(blocks[blockIndex], index, drawPalette, drawFlipH, drawFlipV, drawTile);
          var newImage = BlocksetModel.Read(blocks[blockIndex], index, tiles, palettes);

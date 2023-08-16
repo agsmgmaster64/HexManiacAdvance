@@ -836,21 +836,21 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
                var matchingWarp0 = mapWarps[warps[0].WarpID];
                warpIsAgainstWall = matchingWarp0.Y == map0.Layout.Height - 1;
                if (warpIsAgainstWall) {
-                  blockMap[3, 7] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y - 1].Tile;
-                  blockMap[4, 7] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y - 1].Tile;
-                  blockMap[5, 7] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y - 1].Tile;
+                  blockMap[3, 7] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y - 1].Block;
+                  blockMap[4, 7] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y - 1].Block;
+                  blockMap[5, 7] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y - 1].Block;
 
-                  blockMap[3, 8] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y].Tile;
-                  blockMap[4, 8] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y].Tile;
-                  blockMap[5, 8] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y].Tile;
+                  blockMap[3, 8] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y].Block;
+                  blockMap[4, 8] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y].Block;
+                  blockMap[5, 8] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y].Block;
                } else {
-                  blockMap[3, 7] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y].Tile;
-                  blockMap[4, 7] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y].Tile;
-                  blockMap[5, 7] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y].Tile;
+                  blockMap[3, 7] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y].Block;
+                  blockMap[4, 7] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y].Block;
+                  blockMap[5, 7] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y].Block;
 
-                  blockMap[3, 8] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y + 1].Tile;
-                  blockMap[4, 8] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y + 1].Tile;
-                  blockMap[5, 8] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y + 1].Tile;
+                  blockMap[3, 8] = map0.Blocks[matchingWarp0.X - 1, matchingWarp0.Y + 1].Block;
+                  blockMap[4, 8] = map0.Blocks[matchingWarp0.X, matchingWarp0.Y + 1].Block;
+                  blockMap[5, 8] = map0.Blocks[matchingWarp0.X + 1, matchingWarp0.Y + 1].Block;
                }
             }
          }
@@ -1130,8 +1130,12 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
                for (int yy = 0; yy < h; yy++) {
                   if (x + xx < 0 || y + yy < 0 || x + xx >= width || y + yy >= height) continue;
                   var address = start + ((yy + y) * width + xx + x) * 2;
-                  var block = blockValues[xx % blockValues.GetLength(0), yy % blockValues.GetLength(1)];
-                  if (model.ReadMultiByteValue(address, 2) != block) {
+                  var block = blockValues == null ? -1 : blockValues[xx % blockValues.GetLength(0), yy % blockValues.GetLength(1)];
+                  if (block == -1 && collisionHighlight >= 0) {
+                     var existingBlock = (model.ReadMultiByteValue(address, 2) & 0x3F);
+                     block = (existingBlock | (collisionHighlight << 10));
+                  }
+                  if (block != -1 && model.ReadMultiByteValue(address, 2) != block) {
                      model.WriteMultiByteValue(address, 2, futureToken(), block);
                      changeCount++;
                   }
@@ -1759,7 +1763,14 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
             ViewPort.Tools.SpriteTool.SpriteAddress = model.Layout.SecondaryBlockset.TilesetAddress;
             ViewPort.Tools.SpriteTool.PaletteAddress = model.Layout.SecondaryBlockset.PaletteAddress;
          }
-         ViewPort.OpenImageEditorTab(ViewPort.Tools.SpriteTool.SpriteAddress, 0, 0, 16);
+
+         var newTab = new ImageEditorViewModel(ViewPort.ChangeHistory, this.model, ViewPort.Tools.SpriteTool.SpriteAddress, ViewPort.Save, ViewPort.Tools.SpriteTool.PaletteAddress);
+         var args = new TabChangeRequestedEventArgs(newTab);
+         ViewPort.MapEditor.RaiseRequestTabChange(args);
+
+         if (newTab.CanEditTilesetWidth) {
+            newTab.CurrentTilesetWidth = 16.LimitToRange(newTab.MinimumTilesetWidth, newTab.MaximumTilesetWidth);
+         }
       }
 
       public ObjectEventViewModel CreateObjectEvent(int graphics, int scriptAddress) {
@@ -2094,7 +2105,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
                var data = model.ReadMultiByteValue(start + ((y - border.North) * width + x - border.West) * 2, 2);
                var collision = data >> 10;
                data &= 0x3FF;
-               if (blockRenders.Count > data) canvas.Draw(blockRenders[data], x * 16, y * 16);
+               lock (blockRenders) {
+                  if (blockRenders.Count > data) canvas.Draw(blockRenders[data], x * 16, y * 16);
+               }
                if (collision == collisionHighlight) HighlightCollision(canvas.PixelData, x * 16, y * 16);
                if (collisionHighlight == -1 && selectedEvent is ObjectEventViewModel obj && obj.ShouldHighlight(x - border.West, y - border.North)) {
                   HighlightCollision(canvas.PixelData, x * 16, y * 16);
@@ -2187,7 +2200,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
             for (int x = 0; x < width; x++) {
                var data = model.ReadMultiByteValue(start + (y * width + x) * 2, 2);
                data &= 0x3FF;
-               canvas.Draw(blockRenders[data], x * 16, y * 16);
+               lock (blockRenders) {
+                  if (!data.InRange(0, blockRenders.Count)) continue; // can't draw this block. Transient race condition?
+                  canvas.Draw(blockRenders[data], x * 16, y * 16);
+               }
             }
          }
 

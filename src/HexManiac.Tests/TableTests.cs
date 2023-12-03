@@ -447,7 +447,7 @@ namespace HavenSoft.HexManiac.Tests {
 
          var cell = (UnderEdit)ViewPort[0, 0].Format;
          var options = cell.AutocompleteOptions.Select(option => option.CompletionText.Trim()).ToArray();
-         Assert.Equal(new[] { "beforeTEXT", "TEXTafter", "TEmiddleXT" }, options);
+         Assert.Equal(new[] { "TEXTafter", "TEmiddleXT", "beforeTEXT" }, options); // sorted
       }
 
       [Fact]
@@ -668,7 +668,7 @@ namespace HavenSoft.HexManiac.Tests {
 
          Assert.Equal(12, segment.CalculatedValue(0));
          Assert.Equal(12, table.ReadValue(Model, 0, "c"));
-         Assert.Equal(12, viewmodel.CalculatedValue);
+         Assert.Equal("12", viewmodel.CalculatedValue);
       }
 
       [Fact]

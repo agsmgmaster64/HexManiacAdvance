@@ -73,15 +73,18 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
       }
 
       /// <returns>Every address where this flag is used</returns>
-      public static HashSet<int> FindFlagUsages(IDataModel model, ScriptParser parser, int flag) {
-         var usages = new HashSet<int>();
+      public static HashSet<(int, int)> FindFlagUsages(IDataModel model, ScriptParser parser, int flag) {
+         var usages = new HashSet<(int, int)>();
 
          foreach (var element in GetAllEvents(model, "objects")) {
-            if (element.GetValue("flag") == flag) usages.Add(element.Start + 20);
+            if (element.GetValue("flag") == flag) usages.Add((element.Start, element.Start + element.Length - 1));
          }
 
          foreach (var spot in GetAllScriptSpots(model, parser, GetAllTopLevelScripts(model), 0x29, 0x2A, 0x2B)) {
-            if (model.ReadMultiByteValue(spot.Address + 1, 2) == flag) usages.Add(spot.Address + 1);
+            var address = spot.Address;
+            if (model.ReadMultiByteValue(address + 1, 2) == flag) {
+               usages.Add((address, address + spot.Line.CompiledByteLength(model, address, null) - 1));
+            }
          }
 
          return usages;
@@ -109,16 +112,19 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
          return usedVariables;
       }
 
-      public static HashSet<int> FindVarUsages(IDataModel model, ScriptParser parser, int variable) {
-         var usages = new HashSet<int>();
+      public static HashSet<(int, int)> FindVarUsages(IDataModel model, ScriptParser parser, int variable) {
+         var usages = new HashSet<(int, int)>();
 
          foreach (var element in GetAllEvents(model, "scripts")) {
             if (!element.HasField("trigger")) continue;
-            if (element.GetValue("trigger") == variable) usages.Add(element.Start + 6);
+            if (element.GetValue("trigger") == variable) usages.Add((element.Start, element.Start + element.Length - 1));
          }
 
          foreach (var spot in GetAllScriptSpots(model, parser, GetAllTopLevelScripts(model), 0x16, 0x17, 0x18, 0x19, 0x1A, 0x21, 0x22, 0x26)) { // setvar, addvar, subvar, copyvar, setorcopyvar, compare, comparevars, special2
-            if (model.ReadMultiByteValue(spot.Address + 1, 2) == variable) usages.Add(spot.Address + 1);
+            var address = spot.Address;
+            if (model.ReadMultiByteValue(address + 1, 2) == variable) {
+               usages.Add((address, address + spot.Line.CompiledByteLength(model, address, null) - 1));
+            }
          }
 
          return usages;
@@ -321,6 +327,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
       }
 
       public static IEnumerable<ScriptSpot> GetAllScriptSpots(IDataModel model, ScriptParser parser, IEnumerable<int> initialAddresses, params byte[] filter) {
+         return GetAllScriptSpots(model, parser, initialAddresses, true, filter);
+      }
+
+      public static IEnumerable<ScriptSpot> GetAllScriptSpots(IDataModel model, ScriptParser parser, IEnumerable<int> initialAddresses, bool includeMacros, params byte[] filter) {
          foreach (var scriptStart in initialAddresses) {
             if (scriptStart < 0 || scriptStart >= model.Count) continue;
             var scriptsToCheck = new List<int> { scriptStart };
@@ -328,7 +338,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
                var address = scriptsToCheck[i];
                int currentScriptLength = 0;
                while (currentScriptLength < ScriptLengthLimit) {
-                  IScriptLine line = parser.GetMacro(model, address);
+                  IScriptLine line = includeMacros ? parser.GetMacro(model, address) : null;
                   if (line == null) line = parser.GetLine(model, address);
                   if (line == null) break;
                   var length = line.CompiledByteLength(model, address, null);
@@ -369,11 +379,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
                   if (script == null) continue;
                   if (script.GetValue("type").IsAny(2, 4)) {
                      var start = script.GetAddress("pointer");
+                     int childCount = 0;
                      if (start >= model.Count || start < 0) continue;
                      while (!model.ReadMultiByteValue(start, 2).IsAny(0, 0xFFFF)) {
-                        scriptAddresses.Add(start + 4);
+                        scriptAddresses.Add(model.ReadPointer(start + 4));
                         start += 8;
-                        if (scriptAddresses.Count > 100) break; // sanity check
+                        childCount += 1;
+                        if (childCount > 100) break; // sanity check
                      }
                   } else {
                      scriptAddresses.Add(script.GetAddress("pointer"));

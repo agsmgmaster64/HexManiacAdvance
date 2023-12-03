@@ -372,10 +372,14 @@ namespace HavenSoft.HexManiac.Tests {
       }
 
       [Theory]
+      [InlineData("mov   r2, #3", 0b00100_010_00000011)]
+      [InlineData("mov   r2 #3", 0b00100_010_00000011)] // works without the comma
+      [InlineData("r2 = 3", 0b00100_010_00000011)]      // alias
       [InlineData("add   r0, r1, r2", 0b0001100_010_001_000)]
       [InlineData("add   r0, r1",     0b0001100_001_000_000)]
       [InlineData("add   r8, r0",     0b1000100_1_0_000_000)]
       [InlineData("add   r0, r1, #4", 0b0001110_100_001_000)]
+      [InlineData("mul   r0, r0, r1", 0b0100001101_001_000)]
       [InlineData("add   r2, r2, #4", 0b00110_010_00000100)]
       [InlineData("lsl   r1, r2, #4", 0b00000_00100_010_001)]
       [InlineData("lsl   r1, #4",     0b00000_00100_001_001)]
@@ -558,6 +562,59 @@ namespace HavenSoft.HexManiac.Tests {
       }
 
       [Fact]
+      public void ThumbCode_InlineSet_TransformToLoad() {
+         var model = new PokemonModel(new byte[0x200]);
+         var result = parser.Compile(model, 0x100,
+            "    r0 = 512",
+            "    mov  r0, #0",
+            "    b    <end>",
+            // implicit nop for alignment
+            // implicit .word 256
+            "end:",
+            "    pop pc, {}"
+         );
+
+         var expected = new byte[] {
+            0x01, 0b01001_000,
+            0x00, 0b00100_000,
+            0x02, 0b11100_000,
+            0, 0,              // inserted nop to align for .word value
+            0, 2, 0, 0,        // inserted word
+            0x00, 0b1011110_1, // pop
+         };
+
+         Assert.All(expected.Length.Range(), i => Assert.Equal(expected[i], result[i]));
+      }
+
+      [Theory]
+      [InlineData("r0 = 3 + 4", "mov r0, #3; add r0, #4")] // addition
+      [InlineData("r0 = 7 - 3", "mov r0, #7; sub r0, #3")] // subtraction
+      [InlineData("r0=12+2", "mov r0, #12; add r0, #2")]   // less whitespace
+      [InlineData("r0=12-2+3", "mov r0, #12; sub r0, #2; add r0, #3")]   // multiple additions
+      [InlineData("r0 += 5", "add r0, #5")] // +=
+      [InlineData("r0-=5", "sub r0, #5")] // -=
+      [InlineData("100(r0, 3)", "r1=3;bl <100>")]
+      [InlineData("r1 = 100() + 3", "bl <100>; mov r1, r0; add r1, #3")]
+      [InlineData("r1 |= r2", "orr r1, r2")]
+      [InlineData("r1 ^= r2", "xor r1, r2")]
+      [InlineData("r1 ^= r2", "eor r1, r2")]
+      [InlineData("r1 &= r2", "and r1, r2")]
+      [InlineData("r1 *= r2", "mul r1, r2")]
+      [InlineData("r1 <<= r2", "lsl r1, r2")]
+      [InlineData("r1 >>= r2", "lsr r1, r2")]
+      [InlineData("r1 >>= 2", "lsr r1, #2")]
+      [InlineData("lsr r1, #2", "lsr r1, r1, #2")]
+      [InlineData("r0 = <table>", "ldr r0, =<table>")]
+      public void ThumbCode_Math_Compiles(string math, string code) {
+         var model = new PokemonModel(new byte[0x200]);
+         model.ObserveAnchorWritten(new(), "table", new NoInfoRun(0x80));
+         var result = parser.Compile(model, 0x100, math);
+
+         var expected = parser.Compile(model, 0x100, code.Split(';'));
+         Assert.Equal(expected, result);
+      }
+
+      [Fact]
       public void ThumbCode_InlineLoadLastSection_Compiles() {
          var model = new PokemonModel(new byte[0x200]);
          var result = parser.Compile(model, 0x100,
@@ -670,7 +727,7 @@ namespace HavenSoft.HexManiac.Tests {
             0x00, 0b1011110_1,
          };
 
-         for (int i = 0; i < expected.Length; i++) Assert.Equal(expected[i], result[i]);
+         Assert.All(expected.Length.Range(), i => Assert.Equal(expected[i], result[i]));
       }
 
       [Fact]
@@ -969,6 +1026,25 @@ namespace HavenSoft.HexManiac.Tests {
 
          var name = Model.GetAnchorFromAddress(-1, 0x10);
          Assert.Equal("scripts.text.FAKE0000010", name);
+      }
+
+      [Fact]
+      public void Thumb_GetValueFromTable_Compiles() {
+         ViewPort.Edit("^some.table[a: b: c::]3 ");
+
+         var actual = ViewPort.Tools.CodeTool.Parser.Compile(Model, 0x100, "r0 = some.table[r1].b");
+         var expected = ViewPort.Tools.CodeTool.Parser.Compile(Model, 0x100,
+            "push {r1}",
+            "r0 = 8",          // width of element
+            "r0 *= r1",
+            "r1 = 0x08000000", // table start
+            "r0 += r1",
+            "r1 = 2",          // index of requested field
+            "ldrh r0, [r0, r1]",
+            "pop {r1}"
+         );
+
+         Assert.Equal(expected, actual);
       }
    }
 }

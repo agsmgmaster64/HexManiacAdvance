@@ -35,6 +35,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             scope.SetVariable("table", new TableGetter(editor));
             scope.SetVariable("print", (Action<string>)Printer);
             try {
+               engine.Value.Execute(@"
+import clr
+clr.AddReference('HexManiac.Core')
+import HavenSoft.HexManiac.Core
+clr.ImportExtensions(HavenSoft.HexManiac.Core.Models)
+",
+                  scope);
                engine.Value.Execute(editor.Singletons.PythonUtility, scope);
             } catch (Exception ex) {
                Debug.Fail(ex.Message);
@@ -135,9 +142,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          bool inDoubleQuoteText = false;
          var escaped = false;
          for (int i = 0; i < content.Length; i++) {
+            var wasInQutoes = inSingleQuoteText || inDoubleQuoteText;
             if (!escaped && content[i] == '\'' && !inDoubleQuoteText) inSingleQuoteText = !inSingleQuoteText;
             if (!escaped && content[i] == '"' && !inSingleQuoteText) inDoubleQuoteText = !inDoubleQuoteText;
-            if (inSingleQuoteText || inDoubleQuoteText) result[i] = TextFormatting.Text;
+            if (wasInQutoes || inSingleQuoteText || inDoubleQuoteText) result[i] = TextFormatting.Text;
             escaped = content[i] == '\\' && !escaped;
          }
          return result;

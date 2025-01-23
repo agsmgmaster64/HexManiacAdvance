@@ -20,6 +20,7 @@ namespace HavenSoft.HexManiac.Core.Models {
 
       byte[] RawData { get; }
       ModelCacheScope CurrentCacheScope { get; }
+      int ReferenceCount { get; set; }
       bool SpartanMode { get; set; }
       bool HasChanged(int index);
       int ChangeCount { get; }
@@ -147,6 +148,8 @@ namespace HavenSoft.HexManiac.Core.Models {
             return instance;
          }
       }
+
+      public int ReferenceCount { get; set; } = 0; // used for tracking how many ViewModels currently use this Model
 
       public BaseModel(byte[] data) {
          RawData = data;
@@ -378,7 +381,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       }
       public static bool IsFRLG(this IReadOnlyList<byte> model) {
          var code = model.GetGameCode();
-         return code.StartsWith("BPRE") || code.StartsWith("BPGE");
+         return code.StartsWith("BPR") || code.StartsWith("BPG");
       }
       public static bool IsEmerald(this IReadOnlyList<byte> model) => model.GetGameCode() == "BPEE0";
 
@@ -628,7 +631,7 @@ namespace HavenSoft.HexManiac.Core.Models {
          model.LoadMetadataProperties(metadata);
       }
 
-      public static void LoadMetadataProperties(this IDataModel model, StoredMetadata metadata){
+      public static void LoadMetadataProperties(this IDataModel model, StoredMetadata metadata) {
          if (metadata.NextExportID > 0) model.NextExportID = metadata.NextExportID;
          if (metadata.FreeSpaceSearch >= 0) model.FreeSpaceStart = Math.Min(model.Count - 1, metadata.FreeSpaceSearch);
          if (metadata.FreeSpaceBuffer >= 0) model.FreeSpaceBuffer = metadata.FreeSpaceBuffer;

@@ -24,6 +24,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       private readonly Selection selection;
       private readonly ChangeHistory<ModelDelta> history;
       private readonly IRaiseMessageTab messageTab;
+      private readonly IDelayWorkTimer recompileTimer;
 
       public event EventHandler<ErrorInfo> ModelDataChanged;
       public event EventHandler AttentionNewContent;
@@ -33,6 +34,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       public bool UseMultiContent => Mode.IsAny(CodeMode.Script, CodeMode.BattleScript, CodeMode.AnimationScript, CodeMode.TrainerAiScript);
 
       public IDataInvestigator Investigator { get; set; }
+
+      private bool isSelected;
+      public bool IsSelected { get => isSelected; set => Set(ref isSelected, value, old => UpdateContent()); }
 
       private bool insertAutoActive = true;
       public bool InsertAutoActive { get => insertAutoActive; set => Set(ref insertAutoActive, value); }
@@ -95,6 +99,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
       public CodeTool(Singletons singletons, ViewPort viewPort, Selection selection, ChangeHistory<ModelDelta> history, IRaiseMessageTab messageTab) {
          this.singletons = singletons;
+         recompileTimer = singletons.WorkDispatcher.CreateDelayTimer();
          var gameHash = viewPort.Model.GetShortGameCode();
          thumb = new ThumbParser(singletons);
          script = new ScriptParser(gameHash, singletons.ScriptLines, 0x02);
@@ -107,7 +112,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          this.history = history;
          this.messageTab = messageTab;
          selection.PropertyChanged += (sender, e) => {
-            if (e.PropertyName == nameof(selection.SelectionEnd)) {
+            if (e.PropertyName == nameof(selection.SelectionStart)) {
+               if (selection.SelectionStart == selection.SelectionEnd) UpdateContent();
+            } else if (e.PropertyName == nameof(selection.SelectionEnd)) {
                UpdateContent();
             }
          };
@@ -144,7 +151,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       public void DataForCurrentRunChanged() => UpdateContent();
 
       public void UpdateContent() {
-         if (ignoreContentUpdates) return;
+         if (ignoreContentUpdates || !isSelected) return;
          var start = Math.Min(model.Count - 1, selection.Scroll.ViewPointToDataIndex(selection.SelectionStart));
          var end = Math.Min(model.Count - 1, selection.Scroll.ViewPointToDataIndex(selection.SelectionEnd));
 
@@ -245,26 +252,30 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             }
 
             var label = scriptStart.ToString("X6");
-            var body = Contents.Count > i ? Contents[i] :
-               new CodeBody(model, parser, Investigator) { Address = scriptStart, Label = label };
+            CodeBody body;
+            if (Contents.Count > i && Contents[i].Parser == parser) {
+               body = Contents[i];
+            } else {
+               body = new CodeBody(model, parser, Investigator) { Address = scriptStart, Label = label };
+               parser.AddKeywords(model, body);
+            }
 
             var info = model.CurrentCacheScope.GetScriptInfo(parser, scriptStart, body, ref existingSectionCount);
             bool needsAnimation = false;
 
             if (Contents.Count > i) {
-               Contents[i].ContentChanged -= ScriptChanged;
-               Contents[i].HelpSourceChanged -= UpdateScriptHelpFromLine;
-               Contents[i].Content = string.Empty;
-               if (Contents[i].Address != scriptStart) parser.AddKeywords(model, Contents[i]);
-               Contents[i].Content = info.Content;
-               Contents[i].Address = scriptStart;
-               Contents[i].CompiledLength = info.Length;
-               Contents[i].Label = label;
-               Contents[i].HelpSourceChanged += UpdateScriptHelpFromLine;
-               Contents[i].ContentChanged += ScriptChanged;
+               body.ContentChanged -= ScriptChanged;
+               body.HelpSourceChanged -= UpdateScriptHelpFromLine;
+               body.Content = string.Empty;
+               body.Content = info.Content;
+               body.Address = scriptStart;
+               body.CompiledLength = info.Length;
+               body.Label = label;
+               body.HelpSourceChanged += UpdateScriptHelpFromLine;
+               body.ContentChanged += ScriptChanged;
+               Contents[i] = body;
             } else {
                body.CompiledLength = info.Length;
-               parser.AddKeywords(model, body);
                body.Content = info.Content;
                body.ContentChanged += ScriptChanged;
                body.HelpSourceChanged += UpdateScriptHelpFromLine;
@@ -314,7 +325,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          if (run != null && run.Start != body.Address) run = null;
 
          int length = parser.FindLength(model, body.Address);
-         using (ModelCacheScope.CreateScope(model)) {
+         // don't need to run this if they're still typing
+         recompileTimer.DelayCall(TimeSpan.FromSeconds(.5), () => {
             var initialStart = selection.Scroll.ViewPointToDataIndex(selection.SelectionStart);
             var initialEnd = selection.Scroll.ViewPointToDataIndex(selection.SelectionEnd);
             if (initialStart > initialEnd) (initialStart, initialEnd) = (initialEnd, initialStart);
@@ -344,7 +356,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                body.Address = start; // in case of the code getting repointed
             }
             UpdateContents(start, parser, body.Address, length);
-         }
+         });
       }
 
       private void UpdateScriptHelpFromLine(object sender, HelpContext context) {

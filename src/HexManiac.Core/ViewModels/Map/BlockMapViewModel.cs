@@ -794,9 +794,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
          return newMap;
       }
 
-      public void UpdateClone(BlockMapViewModel neighbor, ObjectEventViewModel parentEvent) {
+      public void UpdateClone(BlockMapViewModel neighbor, ObjectEventViewModel parentEvent, bool deleted = false) {
          if (!model.IsFRLG() || neighbor == null || parentEvent == null) return;
-         var obj = EventGroup.Objects.FirstOrDefault(obj => obj.Kind && obj.Elevation == parentEvent.Element.ArrayIndex + 1 && obj.TrainerType == neighbor.map && obj.TrainerRangeOrBerryID == neighbor.group);
+         var obj = EventGroup?.Objects.FirstOrDefault(obj => obj.Kind && obj.Elevation == parentEvent.Element.ArrayIndex + 1 && obj.TrainerType == neighbor.map && obj.TrainerRangeOrBerryID == neighbor.group);
          var (thisX, thisY) = ConvertCoordinates(0, 0);
          var (thatX, thatY) = neighbor.ConvertCoordinates(0, 0);
          var (xDif, yDif) = (thisX - thatX, thisY - thatY);
@@ -805,6 +805,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
          var layout = GetLayout();
          var (width, height) = (layout.GetValue("width"), layout.GetValue("height"));
          var needClone = desiredX >= -8 && desiredY >= -8 && desiredX < width + 8 && desiredY < height + 8;
+         if (deleted) needClone = false;
          if (obj == null && needClone) {
             obj = CreateObjectEvent(parentEvent.Graphics, Pointer.NULL);
             obj.Kind = true;
@@ -981,122 +982,178 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
       }
 
       public void Draw9Grid(ModelDelta token, int[,] grid, double x, double y) {
+         var layout = GetLayout();
+         var (width, height) = (layout.GetValue("width"), layout.GetValue("height"));
          var (xx, yy) = ConvertCoordinates(x, y);
+         xx = xx.LimitToRange(0, width - 2);
+         yy = yy.LimitToRange(0, height - 2);
          Draw9Grid(token, grid, xx, yy);
       }
 
-      public void Draw25Grid(ModelDelta token, int[,] grid, double x, double y) {
-         var (xx, yy) = ConvertCoordinates(x, y);
-         Draw25Grid(token, grid, xx, yy);
-      }
+      public void DiscoverCornersFor9Grid(int[,] grid) {
+         innerCornersFor9Grid = null;
+         var layout = new LayoutModel(GetLayout());
 
-      public void Draw9Grid(ModelDelta token, int[,] grid, int xx, int yy) {
-         var targets = new List<int>();
-         for (int x = 0; x < 3; x++) for (int y = 0; y < 3; y++) targets.Add(grid[x, y] & 0x3FF);
+         // numpad layout for easy reference
+         var np7 = grid[0, 0] & 0x3FF;
+         var np8 = grid[1, 0] & 0x3FF;
+         var np9 = grid[2, 0] & 0x3FF;
+         var np4 = grid[0, 1] & 0x3FF;
+         var np5 = grid[1, 1] & 0x3FF;
+         var np6 = grid[2, 1] & 0x3FF;
+         var np1 = grid[0, 2] & 0x3FF;
+         var np2 = grid[1, 2] & 0x3FF;
+         var np3 = grid[2, 2] & 0x3FF;
 
-         var layout = GetLayout();
-         var (width, height) = (layout.GetValue("width"), layout.GetValue("height"));
-         var start = layout.GetAddress("blockmap");
+         // histograms for inside corners, where the ! is a 'hole':
+         // 7  .  9
+         // .  !  .
+         // 1  .  3
+         var corner7 = new AutoDictionary<int, int>(_ => 0);
+         var corner9 = new AutoDictionary<int, int>(_ => 0);
+         var corner1 = new AutoDictionary<int, int>(_ => 0);
+         var corner3 = new AutoDictionary<int, int>(_ => 0);
 
-         int get(Point p) => p.X < 0 || p.Y < 0 || p.X >= width || p.Y >= height ? -1 : model.ReadMultiByteValue(start + (p.Y * width + p.X) * 2, 2) & 0x3FF;
-         void set(Point p, int block) => model.WriteMultiByteValue(start + (p.Y * width + p.X) * 2, 2, token, block);
+         // use maps in the game to figure out the corners
+         foreach (var map in GetAllMaps()) {
+            if (map.Layout.PrimaryBlockset.Start != layout.PrimaryBlockset.Start && map.Layout.SecondaryBlockset.Start != layout.SecondaryBlockset.Start) continue;
 
-         // change all connected blocks based on the grid
-         var todo = new List<Point> { new(xx, yy), new(xx - 1, yy), new(xx + 1, yy), new(xx, yy - 1), new(xx, yy + 1) };
-         lock (pixelWriteLock) {
-            set(todo[0], grid[1, 1]);
-            foreach (var cell in todo) {
-               var cellValue = get(cell);
-               if (!targets.Contains(cellValue)) continue;
-
-               var north = targets.Contains(get(new(cell.X, cell.Y - 1)));
-               var south = targets.Contains(get(new(cell.X, cell.Y + 1)));
-               var west = targets.Contains(get(new(cell.X - 1, cell.Y)));
-               var east = targets.Contains(get(new(cell.X + 1, cell.Y)));
-               var aggregate = (north ? "N" : " ") + (east ? "E" : " ") + (south ? "S" : " ") + (west ? "W" : " ");
-
-               var block = aggregate switch {
-                  " ES " => grid[0, 0],
-                  " ESW" => grid[1, 0],
-                  "  SW" => grid[2, 0],
-                  "NES " => grid[0, 1],
-                  "NESW" => grid[1, 1],
-                  "N SW" => grid[2, 1],
-                  "NE  " => grid[0, 2],
-                  "NE W" => grid[1, 2],
-                  "N  W" => grid[2, 2],
-                  _ => grid[1, 1],
-               };
-               set(cell, block);
+            var blockMap = map.Layout.BlockMap;
+            for (int y = 0; y < blockMap.Height; y++) {
+               bool topEdge = y == 0, bottomEdge = y == blockMap.Height - 1;
+               for (int x = 0; x < blockMap.Width; x++) {
+                  bool leftEdge = x == 0, rightEdge = x == blockMap.Width - 1;
+                  var block = blockMap[x, y].Block; // store tile and collision, but only check that tiles match
+                  if (!rightEdge && !bottomEdge && blockMap[x + 1, y].Tile.IsAny(np3, np2) && blockMap[x, y + 1].Tile.IsAny(np3, np6)) {
+                     corner7[block] += 1;
+                  }
+                  if (!leftEdge && !bottomEdge && blockMap[x - 1, y].Tile.IsAny(np1, np2) && blockMap[x, y + 1].Tile.IsAny(np1, np4)) {
+                     corner9[block] += 1;
+                  }
+                  if (!rightEdge && !topEdge && blockMap[x + 1, y].Tile.IsAny(np8, np9) && blockMap[x, y - 1].Tile.IsAny(np6, np9)) {
+                     corner1[block] += 1;
+                  }
+                  if (!leftEdge && !topEdge && blockMap[x - 1, y].Tile.IsAny(np7, np8) && blockMap[x, y - 1].Tile.IsAny(np4, np7)) {
+                     corner3[block] += 1;
+                  }
+               }
             }
          }
 
-         ClearPixelCache();
+         var corners = new int[2, 2];
+         var defaultBlock = grid[1, 1] & 0x3FF;
+         var key = corner7.MostCommonKey(); corners[0, 0] = key != 0 ? key : defaultBlock;
+         key = corner9.MostCommonKey(); corners[1, 0] = key != 0 ? key : defaultBlock;
+         key =  corner1.MostCommonKey(); corners[0, 1] = key != 0 ? key : defaultBlock;
+         key =  corner3.MostCommonKey(); corners[1, 1] = key != 0 ? key : defaultBlock;
+         innerCornersFor9Grid = corners;
       }
 
-      public void Draw25Grid(ModelDelta token, int[,] grid, int xx, int yy) {
-         var targets = new List<int>();
-         for (int x = 0; x < 5; x++) {
-            for (int y = 0; y < 5; y++) {
-               if (x == 0 && y == 0) continue;
-               if (x == 4 && y == 0) continue;
-               if (x == 0 && y == 4) continue;
-               if (x == 4 && y == 4) continue;
-               targets.Add(grid[x, y] & 0x3FF);
+      public void PrepareFor9GridDraw(int[,] grid) {
+         // when we do a 9-grid draw,
+         // we want to track which draws are part of the current interaction only
+         var layout = new LayoutModel(GetLayout());
+         current9gridInteractionMap = new bool[layout.Width, layout.Height];
+
+         // NOTE add this code if we want to make new draws connect to existing draws
+
+         /*
+         var corners = this.innerCornersFor9Grid ?? new int[,] { { grid[1, 1], grid[1, 1] }, { grid[1, 1], grid[1, 1] } };
+
+         var targets = new HashSet<int>();
+         for (int y = 0; y < 3; y++) for (int x = 0; x < 3; x++) targets.Add(grid[x, y]);
+         for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) targets.Add(corners[x, y]);
+
+         for (int y = 0; y < layout.Height; y++) {
+            for (int x = 0; x < layout.Width; x++) {
+               current9gridInteractionMap[x, y] = targets.Contains(layout.BlockMap[x, y].Block);
+            }
+         }
+         //*/
+      }
+
+      public static int Get9GridBlock(bool[,] map, Point p, int[,] grid9, int[,] corners) {
+         int neighborhood = 0;
+         for (int y = -1; y < 2; y++) {
+            for (int x = -1; x < 2; x++) {
+               if (!(p.X + x).InRange(0, map.GetLength(0)) || !(p.Y + y).InRange(0, map.GetLength(1))) continue;
+               var bit = 8 - ((y + 1) * 3 + x + 1);
+               neighborhood |= (map[p.X + x, p.Y + y] ? 1 : 0) << bit;
             }
          }
 
-         var layout = GetLayout();
-         var (width, height) = (layout.GetValue("width"), layout.GetValue("height"));
-         var start = layout.GetAddress("blockmap");
+         return neighborhood switch {
+            // normal corners - 4 varients of each (2 corners don't matter)
+            0b110_110_000 => grid9[2, 2], // bottom-right
+            0b110_110_100 => grid9[2, 2],
+            0b111_110_100 => grid9[2, 2],
+            0b111_110_000 => grid9[2, 2],
+            0b011_011_000 => grid9[0, 2], // bottom-left
+            0b011_011_001 => grid9[0, 2],
+            0b111_011_001 => grid9[0, 2],
+            0b111_011_000 => grid9[0, 2],
+            0b000_110_110 => grid9[2, 0], // top-right
+            0b100_110_110 => grid9[2, 0],
+            0b100_110_111 => grid9[2, 0],
+            0b000_110_111 => grid9[2, 0],
+            0b000_011_011 => grid9[0, 0], // top-left
+            0b001_011_011 => grid9[0, 0],
+            0b000_011_111 => grid9[0, 0],
+            0b001_011_111 => grid9[0, 0],
 
-         int get(Point p) => p.X < 0 || p.Y < 0 || p.X >= width || p.Y >= height ? -1 : model.ReadMultiByteValue(start + (p.Y * width + p.X) * 2, 2) & 0x3FF;
-         void set(Point p, int block) => model.WriteMultiByteValue(start + (p.Y * width + p.X) * 2, 2, token, block);
+            // edges - 4 variants of each (2 corners don't matter)
+            0b111_111_000 => grid9[1, 2], // bottom
+            0b111_111_100 => grid9[1, 2],
+            0b111_111_001 => grid9[1, 2],
+            0b111_111_101 => grid9[1, 2],
+            0b000_111_111 => grid9[1, 0], // top
+            0b100_111_111 => grid9[1, 0],
+            0b001_111_111 => grid9[1, 0],
+            0b101_111_111 => grid9[1, 0],
+            0b011_011_011 => grid9[0, 1], // left
+            0b111_011_011 => grid9[0, 1],
+            0b011_011_111 => grid9[0, 1],
+            0b111_011_111 => grid9[0, 1],
+            0b110_110_110 => grid9[2, 1], // right
+            0b111_110_110 => grid9[2, 1],
+            0b110_110_111 => grid9[2, 1],
+            0b111_110_111 => grid9[2, 1],
 
-         // change all connected blocks based on the grid
-         var todo = new List<Point> {
-            new(xx, yy),
-            new(xx - 1, yy), new(xx + 1, yy), new(xx, yy - 1), new(xx, yy + 1),
-            new(xx + 1, yy + 1), new(xx + 1, yy - 1), new(xx - 1, yy + 1), new(xx - 1, yy - 1),
+            // inside corners
+            0b111_111_110 => corners[0, 0],
+            0b111_111_011 => corners[1, 0],
+            0b110_111_111 => corners[0, 1],
+            0b011_111_111 => corners[1, 1],
+
+            _ => grid9[1, 1],
          };
+      }
+
+      private bool[,] current9gridInteractionMap;
+      private int[,]? innerCornersFor9Grid;
+      // 9-grid is always drawn 2x2
+      public void Draw9Grid(ModelDelta token, int[,] grid, int x, int y) {
+         var innerCornersFor9Grid = this.innerCornersFor9Grid ?? new[,] { { grid[1, 1], grid[1, 1] }, { grid[1, 1], grid[1, 1] } }; // copy so that there's no reference changing during the method
+         var layout = GetLayout();
+         var (width, height) = (layout.GetValue("width"), layout.GetValue("height"));
+
+         current9gridInteractionMap[x, y] = true;
+         current9gridInteractionMap[x + 1, y] = true;
+         current9gridInteractionMap[x, y + 1] = true;
+         current9gridInteractionMap[x + 1, y + 1] = true;
+
+         var start = layout.GetAddress("blockmap");
+
+         // need to draw these 4 blocks as well as the 12 neighboring blocks (up/down/left/right/diagonal) if they're set to true
          lock (pixelWriteLock) {
-            set(todo[0], grid[1, 1]);
-            foreach (var cell in todo) {
-               var cellValue = get(cell);
-               if (!targets.Contains(cellValue)) continue;
-
-               var northwest = targets.Contains(get(new(cell.X - 1, cell.Y - 1)));
-               var northeast = targets.Contains(get(new(cell.X + 1, cell.Y - 1)));
-               var southwest = targets.Contains(get(new(cell.X - 1, cell.Y + 1)));
-               var southeast = targets.Contains(get(new(cell.X + 1, cell.Y + 1)));
-               var north = targets.Contains(get(new(cell.X, cell.Y - 1)));
-               var south = targets.Contains(get(new(cell.X, cell.Y + 1)));
-               var west = targets.Contains(get(new(cell.X - 1, cell.Y)));
-               var east = targets.Contains(get(new(cell.X + 1, cell.Y)));
-
-               var aggregate = (north ? "N" : " ") + (east ? "E" : " ") + (south ? "S" : " ") + (west ? "W" : " ");
-               var corners = (northwest ? "7" : " ") + (northeast ? "9" : " ") + (southeast ? "3" : " ") + (southwest ? "1" : " ");
-
-               // grid[x, y]
-               var block = aggregate switch {
-                  " ES " => grid[1, 0],
-                  " ESW" => grid[2, 0],
-                  "  SW" => grid[3, 0],
-                  "NES " => grid[0, 2],
-                  "NESW" => grid[2, 2],
-                  "N SW" => grid[4, 2],
-                  "NE  " => grid[0, 3],
-                  "NE W" => grid[2, 4],
-                  "N  W" => grid[4, 3],
-                  _ => grid[1, 1],
-               };
-
-               if ("NW".All(aggregate.Contains) && !corners.Contains('7')) block = grid[1, 1];
-               if ("NE".All(aggregate.Contains) && !corners.Contains('9')) block = grid[3, 1];
-               if ("SE".All(aggregate.Contains) && !corners.Contains('3')) block = grid[3, 3];
-               if ("SW".All(aggregate.Contains) && !corners.Contains('1')) block = grid[1, 3];
-
-               set(cell, block);
+            for (int dy = -1; dy < 3; dy++) {
+               for (int dx = -1; dx < 3; dx++) {
+                  var (xx, yy) = (x + dx, y + dy);
+                  if (!xx.InRange(0, width - 1) || !yy.InRange(0, height - 1)) continue;
+                  if (!current9gridInteractionMap[xx, yy]) continue;
+                  var chosenBlock = Get9GridBlock(current9gridInteractionMap, new(xx, yy), grid, innerCornersFor9Grid);
+                  model.WriteMultiByteValue(start + (yy * width + xx) * 2, 2, token, chosenBlock);
+               }
             }
          }
 
@@ -1746,7 +1803,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
 
          var map = GetMapModel();
          var connections = GetConnections(map, group, this.map);
-         for (int i = 0; i < connections.Count; i++) {
+         for (int i = 0; i < (connections?.Count ?? 0); i++) {
             if (connections[i].Direction != direction || connections[i].MapGroup != mapGroup || connections[i].MapNum != mapNum) continue;
 
             for (int j = i + 1; j < connections.Count; j++) {
@@ -1793,7 +1850,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
       private ITableRun GetOrCreateConnections(ModelArrayElement map, ModelDelta token) {
          if (map == null) return null;
          var connectionsAndCountTable = map.GetSubTable("connections");
-         if (connectionsAndCountTable == null) {
+         if (connectionsAndCountTable == null || map.Model.GetNextRun(connectionsAndCountTable.Run.Start).Start != connectionsAndCountTable.Run.Start) {
             var newConnectionsAndCountTable = MapRepointer.CreateNewConnections(token);
             model.UpdateArrayPointer(token, null, null, -1, map.Start + 12, newConnectionsAndCountTable);
             connectionsAndCountTable = map.GetSubTable("connections");
@@ -1812,7 +1869,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
             connectionsAndCount.SetAddress("connections", newConnectionTableStart);
             InformCreate(new("Connection", newConnectionTableStart));
          } else {
-            connections = connectionsAndCount.GetSubTable("connections").Run;
+            var connectionsTable = connectionsAndCount.GetSubTable("connections");
+            if (connectionsTable == null) return null;
+            connections = connectionsTable.Run;
          }
 
          return connections;
@@ -1829,11 +1888,11 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
       public event EventHandler CanEditTilesetChanged;
       public bool CanEditTileset(string type) {
          var model = new MapModel(GetMapModel(), group, map);
-         var spriteAddress = model.Layout.PrimaryBlockset.TilesetAddress;
-         var paletteAddress = model.Layout.PrimaryBlockset.PaletteAddress;
+         var spriteAddress = model.Layout?.PrimaryBlockset?.TilesetAddress ?? -1;
+         var paletteAddress = model.Layout?.PrimaryBlockset?.PaletteAddress ?? -1;
          if (type == "Secondary") {
-            spriteAddress = model.Layout.SecondaryBlockset.TilesetAddress;
-            paletteAddress = model.Layout.SecondaryBlockset.PaletteAddress;
+            spriteAddress = model.Layout?.SecondaryBlockset?.TilesetAddress ?? -1;
+            paletteAddress = model.Layout?.SecondaryBlockset?.PaletteAddress ?? -1;
          }
          return this.model.GetNextRun(spriteAddress) is ISpriteRun sRun && sRun.Start == spriteAddress &&
             this.model.GetNextRun(paletteAddress) is IPaletteRun pRun && pRun.Start == paletteAddress;
@@ -2094,6 +2153,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
             if (blockModel1 == null) blockModel1 = new BlocksetModel(model, layout.GetAddress(Format.PrimaryBlockset));
             if (blockModel2 == null) blockModel2 = new BlocksetModel(model, layout.GetAddress(Format.SecondaryBlockset));
          }
+         if (!blockModel1.Start.InRange(0, model.Count) || !blockModel2.Start.InRange(0, model.Count)) return;
+
          int width = layout.GetValue("width"), height = layout.GetValue("height");
          int start = layout.GetAddress(Format.BlockMap);
          var maxUsedPrimary = BlockmapRun.GetMaxUsedBlock(model, start, width, height, PrimaryBlocks);
@@ -2110,6 +2171,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
             if (blockModel1 == null) blockModel1 = new BlocksetModel(model, layout.GetAddress("blockdata1"));
             if (blockModel2 == null) blockModel2 = new BlocksetModel(model, layout.GetAddress("blockdata2"));
          }
+         if (!blockModel1.Start.InRange(0, model.Count) || !blockModel2.Start.InRange(0, model.Count)) return;
+
          int width = layout.GetValue("width"), height = layout.GetValue("height");
          int start = layout.GetAddress(Format.BlockMap);
          var maxUsedPrimary = BlockmapRun.GetMaxUsedBlock(model, start, width, height, PrimaryBlocks);
@@ -2120,12 +2183,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
       }
 
       private void RefreshBlockRenderCache(ModelArrayElement layout = null, BlocksetModel blockModel1 = null, BlocksetModel blockModel2 = null) {
-         if (blocks == null || tiles == null || palettes == null) {
+         if (blocks == null || tiles == null || palettes == null || blockModel1 == null || blockModel2 == null) {
             if (layout == null) layout = GetLayout();
             if (layout == null) return;
             if (blockModel1 == null) blockModel1 = new BlocksetModel(model, layout.GetAddress(Format.PrimaryBlockset));
             if (blockModel2 == null) blockModel2 = new BlocksetModel(model, layout.GetAddress(Format.SecondaryBlockset));
          }
+         if (!blockModel1.Start.InRange(0, model.Count) || !blockModel2.Start.InRange(0, model.Count)) return;
 
          lock (blockRenders) {
             if (blocks == null) RefreshBlockCache(layout, blockModel1, blockModel2);
@@ -2191,7 +2255,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
                   if (rightEdge && bottomEdge && xEdge % borderWidth == 0 && yEdge % borderHeight == 0) canvas.Draw(borderBlockCopy, x * 16, y * 16);
                   continue;
                }
-               var data = model.ReadMultiByteValue(start + ((y - border.North) * width + x - border.West) * 2, 2);
+               var dataStart = start + ((y - border.North) * width + x - border.West) * 2;
+               var data = dataStart.InRange(0, model.Count - 2) ? model.ReadMultiByteValue(dataStart, 2) : 0;
                var collision = data >> 10;
                data &= 0x3FF;
                lock (blockRenders) {
@@ -2377,6 +2442,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
             if (allOverworldSprites == null) allOverworldSprites = RenderOWs(model);
             if (defaultOverworldSprite == null) defaultOverworldSprite = GetDefaultOW(model);
             var map = GetMapModel();
+            if (map == null) return null;
             var eventsTable = map.GetSubTable("events");
             if (eventsTable == null) return null;
             var eventElements = eventsTable[0];
@@ -2692,6 +2758,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Map {
          var direction = Direction.Reverse();
          var map = BlockMapViewModel.GetMapModel(Model, MapGroup, MapNum, Tokens);
          var neighbors = BlockMapViewModel.GetConnections(map, MapGroup, MapNum);
+         if (neighbors == null) return null;
          return neighbors.FirstOrDefault(c => c.MapGroup == sourceGroup && c.MapNum == sourceMap && c.Direction == direction);
       }
 

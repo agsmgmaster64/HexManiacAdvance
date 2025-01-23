@@ -45,7 +45,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       void RefreshContent();
    }
 
-   public interface IArrayElementViewModel : INotifyPropertyChanged {
+   public interface IArrayElementViewModel : ICanSilencePropertyNotifications {
       event EventHandler DataChanged;
       event EventHandler DataSelected;
       string Theme { get; set; }
@@ -55,6 +55,11 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       int ZIndex { get; }
       bool TryCopy(IArrayElementViewModel other);
    }
+
+   // shared interface for fields/comboboxes to appear in multi-boxes
+   public interface IMultiEnabledArrayElementViewModel : IArrayElementViewModel {
+      string Name { get; set; }
+   } 
 
    public class SplitterArrayElementViewModel : ViewModelCore, IArrayElementViewModel {
       event EventHandler IArrayElementViewModel.DataChanged { add { } remove { } }
@@ -101,6 +106,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
             if (child is FieldArrayElementViewModel faevm) childVisible = filterMatchesGroup || faevm.Name.MatchesPartial(filter);
             if (child is ComboBoxArrayElementViewModel cbaevm) childVisible = filterMatchesGroup || cbaevm.Name.MatchesPartial(filter);
+            if (child is MultiFieldArrayElementViewModel multi) childVisible = filterMatchesGroup || multi.Filter(filter);
             if (child is CalculatedElementViewModel cevm) childVisible = filterMatchesGroup || cevm.Name.MatchesPartial(filter);
             if (child is IStreamArrayElementViewModel saevm) childVisible = lastFieldVisible || (saevm is TextStreamElementViewModel tStream && tStream.Content.MatchesPartial(filter));
             if (child is BitListArrayElementViewModel blaevm) {
@@ -127,6 +133,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                   taevm.Children.Any(tupleChild => tupleChild.Name.MatchesPartial(filter));
             }
 
+            // using var scope = child.SilencePropertyNotifications();
             child.Visible = childVisible && visible;
             lastFieldVisible = childVisible;
             anyChildrenVisible = anyChildrenVisible || childVisible;

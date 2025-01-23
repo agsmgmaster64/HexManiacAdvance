@@ -130,9 +130,6 @@
                         <DataTrigger Binding="{Binding IsValid9GridSelection}" Value="True">
                            <Setter Property="Visibility" Value="Visible" />
                         </DataTrigger>
-                        <DataTrigger Binding="{Binding IsValid25GridSelection}" Value="True">
-                           <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger>
                      </Style.Triggers>
                   </Style>
                </Decorator.Style>
@@ -151,20 +148,6 @@
                   </ToolTip>
                </CheckBox.ToolTip>
             </CheckBox>
-            <CheckBox IsChecked="{Binding Use25Grid}" Content="Draw 25-Grid" VerticalAlignment="Top" Grid.Row="1" HorizontalAlignment="Center"
-                      Visibility="{Binding IsValid25GridSelection, Converter={StaticResource BoolToVisibility}}">
-               <CheckBox.ToolTip>
-                  <ToolTip>
-                     <TextBlock>
-                        Draw one of the selected 25 blocks based on a grid.
-                        <LineBreak />
-                        This can make drawing multi-block details like paths,
-                        <LineBreak />
-                        water, or mountains much faster.
-                     </TextBlock>
-                  </ToolTip>
-               </CheckBox.ToolTip>
-            </CheckBox>
             <TextBlock Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center">
                <TextBlock.Style>
                   <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -175,7 +158,6 @@
                               <Condition Binding="{Binding BlockEditorVisible}" Value="False" />
                               <Condition Binding="{Binding DrawMultipleTiles}" Value="False" />
                               <Condition Binding="{Binding IsValid9GridSelection}" Value="False" />
-                              <Condition Binding="{Binding IsValid25GridSelection}" Value="False" />
                            </MultiDataTrigger.Conditions>
                            <MultiDataTrigger.Setters>
                               <Setter Property="Visibility" Value="Visible" />
@@ -307,15 +289,30 @@
                               <TextBlock Text="ID:"/>
                            </local:AngleBorder>
                            <local:AngleTextBox Direction="Out" TextBinding="{Binding ObjectID, UpdateSourceTrigger=PropertyChanged}" />
+                           <CheckBox IsChecked="{Binding ShowGraphicsAsText}" Content="Dynamic Graphics" />
                         </StackPanel>
 
-                        <local:AngleComboBox Grid.Row="0" Grid.Column="1" Direction="Right" SelectedIndex="{Binding Graphics}" ItemsSource="{Binding Options}" Margin="0,2,2,2">
-                           <local:AngleComboBox.ItemsPanel>
-                              <ItemsPanelTemplate>
-                                 <WrapPanel Width="220" />
-                              </ItemsPanelTemplate>
-                           </local:AngleComboBox.ItemsPanel>
-                        </local:AngleComboBox>
+                        <Decorator Grid.Row="0" Grid.Column="1">
+                           <Decorator.Style>
+                              <Style TargetType="Decorator">
+                                 <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowGraphicsAsText}" Value="True">
+                                       <Setter Property="Visibility" Value="Hidden" />
+                                    </DataTrigger>
+                                 </Style.Triggers>
+                              </Style>
+                           </Decorator.Style>
+                           <local:AngleComboBox Direction="Right" SelectedIndex="{Binding Graphics}" ItemsSource="{Binding Options}" Margin="0,2,2,2">
+                              <local:AngleComboBox.ItemsPanel>
+                                 <ItemsPanelTemplate>
+                                    <WrapPanel Width="220" />
+                                 </ItemsPanelTemplate>
+                              </local:AngleComboBox.ItemsPanel>
+                           </local:AngleComboBox>
+                        </Decorator>
+
+                        <local:AngleTextBox Grid.Row="0" Grid.Column="1" Direction="Right" VerticalAlignment="Bottom" TextBinding="{Binding GraphicsText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,2,2"
+                                            Visibility="{Binding ShowGraphicsAsText, Converter={StaticResource BoolToVisibility}}" />
 
                         <CheckBox Grid.Row="1" Grid.Column="1" Visibility="{Binding HasKind, Converter={StaticResource BoolToVisibility}}" IsChecked="{Binding Kind}" Content="Clone">
                            <CheckBox.ToolTip>

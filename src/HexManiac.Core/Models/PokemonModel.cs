@@ -334,8 +334,10 @@ namespace HavenSoft.HexManiac.Core.Models {
 
          var changedLocations = new HashSet<int>();
 
+         var isCFRU = HardcodeTablesModel.GetIsCFRU(this);
          foreach (var reference in referenceTables) {
             if (reference.Address + 4 > Count) continue;
+            if (isCFRU && HardcodeTablesModel.CfruIgnoreTables.Contains(reference.Name)) continue;
             var destination = base.ReadPointer(reference.Address) - reference.Offset;
             if (!anchorForAddress.ContainsKey(destination) && !addressForAnchor.ContainsKey(reference.Name)) {
                ApplyAnchor(this, noChange, destination, "^" + reference.Name + reference.Format, allowAnchorOverwrite: true);
@@ -362,7 +364,9 @@ namespace HavenSoft.HexManiac.Core.Models {
             addressForAnchor[reference.Name] = destination;
 
             // update the run, if the new one can drop-in replace the old one. Used for updating field names or general format
-            if (existingRun.Start == replacementRun.Start && existingRun.Length <= replacementRun.Length && existingRun.FormatString != replacementRun.FormatString) {
+            var newLengthReasonable = existingRun.Length <= replacementRun.Length || AllowShorterLength(reference.Name);
+            var sameStartAddress = existingRun.Start == replacementRun.Start;
+            if (sameStartAddress && newLengthReasonable && existingRun.FormatString != replacementRun.FormatString) {
                ObserveAnchorWritten(noChange, reference.Name, replacementRun);
                changedLocations.Add(destination);
             }
@@ -708,6 +712,13 @@ namespace HavenSoft.HexManiac.Core.Models {
          // move utility changes the format of moves.levelup: pointer is now to a series of 4-byte tokens
          if (format.Contains(" level:]!FFFFFFFF>]")) return true;
 
+         return false;
+      }
+
+      private bool AllowShorterLength(string name) {
+         if (this.IsEmerald()) {
+            return name == HardcodeTablesModel.OverworldSprites;
+         }
          return false;
       }
 
@@ -1197,7 +1208,9 @@ namespace HavenSoft.HexManiac.Core.Models {
          if (original.ElementContent.Count != moved.ElementContent.Count) return; // if the number of elements changed during the move, nop out
          // i loops over the different segments in the array
          for (int i = 0; i < moved.ElementContent.Count; i++) {
-            if (moved.ElementContent[i].Type != ElementContentType.Pointer) {
+            var seg = moved.ElementContent[i];
+            if (seg is ArrayRunRecordSegment recordSeg) seg = recordSeg.CreateConcrete(this, moved, segmentOffset);
+            if (seg.Type != ElementContentType.Pointer) {
                originalOffset += original.ElementContent[i].Length;
                segmentOffset += moved.ElementContent[i].Length;
                continue;
@@ -2610,7 +2623,7 @@ namespace HavenSoft.HexManiac.Core.Models {
             return new ErrorInfo("An anchor with nothing pointing to it must have a name.");
          } else if (!allowAnchorOverwrite && nextAnchor.Start < runToWrite.Start + runToWrite.Length) {
             return new ErrorInfo("An existing anchor starts before the new one ends.");
-         } else if (!name.All(c => char.IsLetterOrDigit(c) || "-._".Contains(c))) { // at this point, the name might have a "-1" on the end, so still allow the dash
+         } else if (!name.All(c => char.IsLetterOrDigit(c) || "._".Contains(c))) {
             return new ErrorInfo("Anchor names must contain only letters, numbers, dots, and underscores.");
          } else if (runToWrite.Start + runToWrite.Length > model.Count) {
             return new ErrorInfo("Anchor format must not go past the end of the file.");

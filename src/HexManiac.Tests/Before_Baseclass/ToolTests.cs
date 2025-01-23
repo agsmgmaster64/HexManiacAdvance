@@ -21,7 +21,10 @@ namespace HavenSoft.HexManiac.Tests {
 
    public class ToolTests : BaseViewModelTestClass {
       private readonly ThumbParser parser;
-      public ToolTests() => parser = new ThumbParser(Singletons);
+      public ToolTests() {
+         parser = new ThumbParser(Singletons);
+         ViewPort.Tools.CodeTool.IsSelected = true;
+      }
 
       [Fact]
       public void ViewPortHasTools() {
@@ -311,7 +314,7 @@ namespace HavenSoft.HexManiac.Tests {
          var lines = parser.Parse(model, 0, bytes.Length).Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
          Assert.Equal(7, lines.Length);
          Assert.Equal("000000:", lines[0]);
-         Assert.Equal("    ldr   r0, [pc, <000004>]", lines[1]);
+         Assert.Equal("    ldr   r0, [pc, <000004>]  @ = 0x56781234", lines[1]);
          Assert.Equal("    b     <00000C>", lines[2]);
          Assert.Equal("000004:", lines[3]);
          Assert.Equal("    .word 0x56781234", lines[4]);
@@ -338,7 +341,7 @@ namespace HavenSoft.HexManiac.Tests {
          Assert.Equal(6, lines.Length);
          Assert.Equal("000000:", lines[0]);
          Assert.Equal("    nop", lines[1]);
-         Assert.Equal("    ldr   r0, [pc, <000008>]", lines[2]);
+         Assert.Equal("    ldr   r0, [pc, <000008>]  @ = 0xDEADBEEF", lines[2]);
          Assert.Equal("    pop   {pc}", lines[3]);
          Assert.Equal("000008:", lines[4]);
          Assert.Equal("    .word 0xDEADBEEF", lines[5]);
@@ -732,7 +735,7 @@ namespace HavenSoft.HexManiac.Tests {
 
       [Fact]
       public void RawCodeToolWorks() {
-         var viewPort = new ViewPort(new LoadedFile("file.txt", new byte[100]));
+         var viewPort = new ViewPort(new LoadedFile("file.txt", new byte[100])) { Tools = { CodeTool = { IsSelected = true } } };
          viewPort.Tools.CodeTool.Mode = CodeMode.Raw;
          viewPort.SelectionEnd = new Point(3, 0);
          Assert.Equal("00 00 00 00", viewPort.Tools.CodeTool.Content.Trim());
@@ -848,7 +851,7 @@ namespace HavenSoft.HexManiac.Tests {
       public void TableTool_FilterTupleFieldName_TupleVisible() {
          var tool = ViewPort.Tools.TableTool;
          tool.Groups.Clear();
-         tool.Groups.Add(new());
+         tool.Groups.Add(new(ViewPort));
          var section = new SplitterArrayElementViewModel(ViewPort, "section", 0);
          var tuple = new TupleArrayElementViewModel(ViewPort, new ArrayRunTupleSegment("tuples", "|abc:|def:|ijk:|xyz:", 4), 0);
 

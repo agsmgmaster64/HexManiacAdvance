@@ -90,10 +90,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
       public ObservableCollection<GotoMapButton> MapPreviews { get; } = new();
 
-      public MapOptionsArrayElementViewModel(IWorkDispatcher dispatcher, MapEditorViewModel mapEditor, string tableName, int index) {
+      public MapOptionsArrayElementViewModel(IWorkDispatcher dispatcher, IDelayWorkTimer timer, MapEditorViewModel mapEditor, string tableName, int index) {
          this.dispatcher = dispatcher;
          (this.mapEditor, this.tableName, this.index) = (mapEditor, tableName, index);
-         dispatcher.RunBackgroundWork(Load);
+         timer.DelayCall(TimeSpan.FromSeconds(.5), Load);
       }
 
       private void Load() {
@@ -143,6 +143,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             var bank = allMaps[bankIndex];
             for (int mapIndex = 0; mapIndex < bank.Count; mapIndex++) {
                var map = bank[mapIndex];
+               if (map == null) continue;
                foreach (var ev in map.Events.Objects.Concat<IScriptEventModel>(map.Events.Scripts)) {
                   if (ev is SignpostEventModel sp && !sp.HasScript) continue;
                   if (cancel) yield break;
